@@ -1,0 +1,2030 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="dark">
+    <title>P5R DOM UI Replica</title>
+    <style>
+        :root {
+            --red: #ed0019;
+            --deep-red: #760006;
+            --black: #050505;
+            --paper: #eeeeec;
+            --gray: #b9b9b7;
+            --cyan: #16e9e7;
+            --pink: #fa31c2;
+            --display: Impact, Haettenschweiler, "Arial Narrow Bold", "Arial Black", sans-serif;
+            --ui: "Microsoft YaHei", "Segoe UI", Arial, sans-serif;
+        }
+
+        * { box-sizing: border-box; }
+
+        html, body {
+            width: 100%;
+            min-width: 320px;
+            height: 100%;
+            margin: 0;
+            overflow: hidden;
+            background: #000;
+            color: #fff;
+            font-family: var(--ui);
+        }
+
+        button, input { font: inherit; }
+        button { color: inherit; }
+
+        .app {
+            width: 100%;
+            height: 100%;
+            display: grid;
+            place-items: center;
+            position: relative;
+            overflow: hidden;
+            background: radial-gradient(circle at 50% 50%, #1a1a1a, #000 72%);
+        }
+
+        .screen {
+            position: relative;
+            overflow: hidden;
+            flex: none;
+            background: #120001;
+            box-shadow: 0 0 0 1px #222;
+        }
+
+        .stage {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 1920px;
+            height: 1080px;
+            overflow: hidden;
+            transform-origin: 0 0;
+            isolation: isolate;
+            background: var(--black);
+        }
+
+        .room,
+        .star-field,
+        .star-canvas,
+        .stars-scroll,
+        .stars,
+        .joker,
+        .reference,
+        .grain,
+        .speed-lines,
+        .wipe,
+        .flash {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        .room {
+            z-index: 0;
+            object-fit: cover;
+            filter: contrast(1.1) saturate(1.12);
+            transform: scale(1.04);
+        }
+
+        .red-wash {
+            position: absolute;
+            inset: 0;
+            z-index: 1;
+            background: rgba(194, 0, 8, .28);
+            mix-blend-mode: screen;
+            pointer-events: none;
+        }
+
+        .speed-lines {
+            z-index: 2;
+            opacity: .27;
+            background:
+                repeating-linear-gradient(169deg, transparent 0 55px, rgba(255,255,255,.4) 57px 59px, transparent 61px 94px),
+                repeating-linear-gradient(9deg, transparent 0 98px, rgba(0,0,0,.68) 100px 105px, transparent 108px 150px);
+            clip-path: polygon(46% 0, 100% 0, 100% 100%, 24% 100%);
+        }
+
+        .star-field {
+            z-index: 3;
+            overflow: hidden;
+            background: #030303;
+            clip-path: polygon(45.1% 0, 100% 0, 100% 100%, 75.6% 100%);
+            transform-origin: 76% 47%;
+        }
+
+        .stars-scroll {
+            inset: 0;
+            width: auto;
+            height: auto;
+            overflow: hidden;
+        }
+
+        .star-canvas {
+            z-index: 0;
+            display: block;
+        }
+
+        .star-field.has-webgl .stars-scroll { display: none; }
+
+        .star-cluster {
+            position: absolute;
+            left: var(--x);
+            top: var(--y);
+            width: var(--size);
+            aspect-ratio: 1;
+            transform: translate(-50%, -50%) rotate(var(--rotation));
+            transform-origin: center;
+        }
+
+        .star-ring {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            width: var(--ring-size);
+            aspect-ratio: 1;
+            opacity: .7;
+            background: var(--tone);
+            clip-path: polygon(50% 0, 63.8% 31%, 97.6% 34.5%, 72.4% 57.3%, 79.4% 90.5%, 50% 73.5%, 20.6% 90.5%, 27.6% 57.3%, 2.4% 34.5%, 36.2% 31%);
+            transform: translate(-50%, -50%);
+            transform-origin: center;
+            will-change: transform, opacity, filter;
+            animation: star-ring-wave var(--cycle) cubic-bezier(.22,.04,.18,1) var(--delay) infinite;
+        }
+
+        .star-ring::after {
+            content: "";
+            position: absolute;
+            inset: var(--stroke);
+            background: #030303;
+            clip-path: inherit;
+        }
+
+        .stars { object-fit: contain; }
+
+        .stars-accent {
+            z-index: 1;
+            opacity: .42;
+            mix-blend-mode: screen;
+            background:
+                linear-gradient(106deg, transparent 0 48%, rgba(238,238,234,.52) 49% 52%, transparent 53%) 71% 8% / 360px 520px no-repeat,
+                linear-gradient(72deg, transparent 0 47%, rgba(190,190,188,.4) 48% 52%, transparent 53%) 88% 83% / 420px 500px no-repeat;
+        }
+
+        .command-layer,
+        .submenu-layer {
+            position: absolute;
+            inset: 0;
+            z-index: 5;
+            pointer-events: none;
+        }
+
+        .joker-command {
+            z-index: 8;
+            object-fit: contain;
+            transform-origin: 65% 36%;
+            opacity: 0;
+        }
+
+        .joker-outline {
+            z-index: 6;
+            object-fit: contain;
+            transform-origin: 65% 36%;
+            opacity: 0;
+        }
+
+        .joker-silhouette {
+            z-index: 8;
+            object-fit: contain;
+            opacity: 0;
+            transform-origin: 65% 36%;
+        }
+
+        .joker-hair-halftone {
+            position: absolute;
+            z-index: 8;
+            left: 1050px;
+            top: 82px;
+            width: 410px;
+            height: 455px;
+            opacity: 0;
+            background: radial-gradient(circle, #f1f1ed 0 2.7px, transparent 3.2px) 0 0 / 11px 11px;
+            clip-path: polygon(18% 8%, 34% 11%, 43% 0, 52% 13%, 67% 3%, 65% 17%, 84% 12%, 77% 28%, 100% 27%, 82% 43%, 91% 55%, 71% 61%, 70% 82%, 52% 68%, 38% 92%, 25% 66%, 5% 70%, 17% 47%, 0 31%, 22% 28%);
+            -webkit-mask: url("assets/p5r-replica/joker-video-cutout.png") -1050px -82px / 1920px 1080px no-repeat;
+            mask: url("assets/p5r-replica/joker-video-cutout.png") -1050px -82px / 1920px 1080px no-repeat;
+            transform-origin: 48% 67%;
+            pointer-events: none;
+        }
+
+        .hand {
+            position: absolute;
+            z-index: 9;
+            inset: 0;
+            width: 1920px;
+            height: 1080px;
+            object-fit: contain;
+        }
+
+        .hand-gray { opacity: 0; }
+        .hand-final { opacity: 0; }
+
+        .joker-godot {
+            position: absolute;
+            z-index: 10;
+            inset: auto;
+            left: 1250px;
+            top: 602px;
+            width: 1492.5px;
+            height: 1255.5px;
+            object-fit: contain;
+            transform: translate(-50%, -50%) scale(.97658, .97222);
+            transform-origin: 50% 50%;
+            filter: brightness(.94) contrast(1.06);
+            pointer-events: none;
+        }
+
+        .command-asset {
+            position: absolute;
+            z-index: 14;
+            left: 827px;
+            top: 745px;
+            width: 777px;
+            height: 269px;
+            object-fit: contain;
+            pointer-events: none;
+        }
+
+        .command-menu {
+            --selector-y: 0px;
+            --selector-width: 330px;
+            --selector-tilt: -1deg;
+            position: absolute;
+            z-index: 15;
+            left: 565px;
+            top: 224px;
+            width: 580px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            transform: rotate(-4deg);
+            pointer-events: auto;
+        }
+
+        .menu-selector {
+            position: absolute;
+            z-index: 0;
+            top: var(--selector-y);
+            left: 50%;
+            width: var(--selector-width);
+            height: 66px;
+            opacity: 0;
+            pointer-events: none;
+            transform: translateX(-50%) rotate(var(--selector-tilt));
+            transform-origin: 50% 50%;
+            transition:
+                top 145ms cubic-bezier(.18,.82,.2,1.08),
+                width 145ms cubic-bezier(.18,.82,.2,1.08),
+                opacity 60ms linear;
+            will-change: top, width, transform;
+        }
+
+        .menu-selector::before,
+        .menu-selector::after,
+        .selector-shard {
+            content: "";
+            position: absolute;
+            display: block;
+        }
+
+        .menu-selector::before {
+            inset: -11px -32px -8px -30px;
+            z-index: -3;
+            background: var(--red);
+            clip-path: polygon(0 43%, 8% 21%, 4% 6%, 27% 15%, 46% 0, 64% 13%, 94% 2%, 88% 26%, 100% 44%, 91% 61%, 96% 90%, 68% 79%, 49% 100%, 34% 82%, 5% 96%, 11% 68%);
+        }
+
+        .menu-selector::after {
+            inset: -4px -20px -2px -16px;
+            z-index: -2;
+            background: #050505;
+            clip-path: polygon(0 24%, 20% 9%, 41% 16%, 66% 0, 100% 17%, 93% 77%, 69% 91%, 42% 83%, 15% 100%, 5% 66%);
+        }
+
+        .selector-shard {
+            z-index: -1;
+            height: 9px;
+            background: #f3f7e6;
+            transition: transform 120ms ease-out;
+        }
+
+        .selector-shard:first-child {
+            top: -9px;
+            left: 8%;
+            width: 48%;
+            clip-path: polygon(0 30%, 100% 0, 92% 100%, 8% 76%);
+            transform: rotate(-4deg);
+        }
+
+        .selector-shard:last-child {
+            right: 2%;
+            bottom: -10px;
+            width: 39%;
+            background: var(--cyan);
+            clip-path: polygon(3% 0, 100% 32%, 88% 100%, 0 68%);
+            transform: rotate(3deg);
+        }
+
+        .command-menu.menu-reveal .menu-selector { opacity: 1; animation: selector-arrive 250ms cubic-bezier(.12,.92,.24,1.12) both; }
+        .command-menu.is-snapping .menu-selector { opacity: 1; }
+        .command-menu[data-direction="down"].is-snapping .menu-selector { animation: selector-hit-down 220ms cubic-bezier(.16,.86,.22,1.15); }
+        .command-menu[data-direction="up"].is-snapping .menu-selector { animation: selector-hit-up 220ms cubic-bezier(.16,.86,.22,1.15); }
+
+        .command-menu[data-direction="down"].menu-recoil { animation: menu-recoil-down 180ms cubic-bezier(.2,.8,.2,1); }
+        .command-menu[data-direction="up"].menu-recoil { animation: menu-recoil-up 180ms cubic-bezier(.2,.8,.2,1); }
+
+        .command-item {
+            --tilt: 0deg;
+            --shift: 0px;
+            height: 66px;
+            margin-top: -12px;
+            padding: 0 24px;
+            border: 0;
+            position: relative;
+            color: var(--paper);
+            background: transparent;
+            cursor: pointer;
+            font: 58px/.9 var(--display);
+            letter-spacing: 0;
+            text-transform: none;
+            white-space: nowrap;
+            -webkit-text-stroke: 3px #000;
+            text-shadow: 7px 8px 0 #000, -3px 4px 0 #000, 3px -3px 0 #000;
+            transform: translateX(var(--shift)) rotate(var(--tilt));
+            transform-origin: 50% 50%;
+            transition: color 55ms linear, transform 135ms cubic-bezier(.18,.84,.22,1.12);
+        }
+
+        .command-item.has-asset {
+            min-width: 224px;
+            padding: 0 18px;
+            -webkit-text-stroke: 0;
+            text-shadow: none;
+        }
+
+        .command-item.has-asset img {
+            display: block;
+            width: auto;
+            height: 60px;
+            margin: 0 auto;
+            object-fit: contain;
+            filter: drop-shadow(6px 7px 0 #000);
+            transition: filter 70ms linear;
+        }
+
+        .command-item.has-asset .label-text {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            overflow: hidden;
+            clip-path: inset(50%);
+        }
+
+        .command-item:nth-child(1) { --shift: 60px; --tilt: 2deg; }
+        .command-item:nth-child(2) { --shift: 40px; --tilt: -1deg; }
+        .command-item:nth-child(3) { --shift: 24px; --tilt: 1deg; }
+        .command-item:nth-child(4) { --shift: 2px; --tilt: -2deg; }
+        .command-item:nth-child(5) { --shift: -12px; --tilt: 1deg; }
+        .command-item:nth-child(6) { --shift: -24px; --tilt: -1deg; }
+        .command-item:nth-child(7) { --shift: -6px; --tilt: 2deg; }
+        .command-item:nth-child(8) { --shift: 18px; --tilt: -1deg; }
+        .command-item:nth-child(9) { --shift: 48px; --tilt: 1deg; }
+
+        .command-item::before,
+        .command-item::after {
+            content: "";
+            position: absolute;
+            z-index: -1;
+            opacity: 0;
+            transition: opacity 90ms linear, transform 130ms ease;
+        }
+
+        .command-item::before {
+            inset: 6px -26px 1px -18px;
+            background: #f3f7e6;
+            clip-path: polygon(3% 17%, 97% 0, 100% 82%, 7% 100%, 0 72%);
+            transform: scaleX(.7) rotate(-1deg);
+        }
+
+        .command-item::after {
+            left: 15%;
+            right: 2%;
+            bottom: -7px;
+            height: 12px;
+            background: linear-gradient(90deg, var(--cyan) 0 42%, #000 42% 54%, var(--red) 54% 100%);
+            clip-path: polygon(0 28%, 100% 0, 96% 100%, 2% 75%);
+        }
+
+        .command-item[aria-current="true"] {
+            z-index: 2;
+            color: #111;
+            -webkit-text-stroke: 0;
+            text-shadow: 4px 3px 0 #fff, 8px 7px 0 #000;
+            transform: translateX(calc(var(--shift) + 24px)) rotate(calc(var(--tilt) - 1deg)) scale(1.12);
+        }
+
+        .command-item.has-asset[aria-current="true"] img {
+            filter: drop-shadow(6px 7px 0 #000);
+        }
+
+        .command-item.has-asset[aria-current="true"]::before { background: var(--red); }
+
+        .command-item[aria-current="true"]::before,
+        .command-item[aria-current="true"]::after { opacity: 1; transform: scaleX(1) rotate(-1deg); }
+
+        .command-menu.menu-reveal .command-item {
+            animation: menu-item-arrive 260ms cubic-bezier(.14,.86,.2,1.12) both;
+            animation-delay: calc(var(--i) * 50ms);
+        }
+
+        .command-menu[data-direction="down"] .command-item.selection-hit {
+            animation: item-hit-down 210ms cubic-bezier(.16,.86,.22,1.15) both;
+        }
+
+        .command-menu[data-direction="up"] .command-item.selection-hit {
+            animation: item-hit-up 210ms cubic-bezier(.16,.86,.22,1.15) both;
+        }
+
+        .brand-lockup {
+            position: absolute;
+            z-index: 16;
+            right: 62px;
+            top: 255px;
+            width: 465px;
+            padding: 22px 18px 20px;
+            color: #fff;
+            background: #050505;
+            border: 11px solid #eee;
+            text-align: center;
+            transform: rotate(4deg);
+            clip-path: polygon(5% 0, 98% 7%, 100% 86%, 7% 100%, 0 22%);
+            filter: drop-shadow(12px 13px 0 #000);
+        }
+
+        .brand-lockup strong {
+            display: block;
+            font: 74px/.8 var(--display);
+            letter-spacing: 0;
+            white-space: nowrap;
+            transform: scaleX(.82);
+        }
+
+        .brand-lockup small {
+            display: block;
+            margin-top: 13px;
+            font: 24px/1 var(--display);
+            letter-spacing: 8px;
+        }
+
+        .command-word {
+            display: none;
+            position: absolute;
+            z-index: 17;
+            left: 770px;
+            bottom: 58px;
+            color: #d7d7d5;
+            font: 170px/.75 var(--display);
+            letter-spacing: 0;
+            transform: rotate(-8deg) scaleX(1.18);
+            text-shadow: 13px 16px 0 #000;
+        }
+
+        .prompt {
+            position: absolute;
+            z-index: 22;
+            right: 50px;
+            bottom: 35px;
+            display: flex;
+            gap: 28px;
+            align-items: center;
+            font: 27px/1 var(--display);
+            letter-spacing: 0;
+            text-shadow: 4px 4px 0 #000;
+        }
+
+        .prompt kbd {
+            display: inline-grid;
+            width: 43px;
+            height: 43px;
+            margin-right: 7px;
+            place-items: center;
+            border: 4px solid #fff;
+            border-radius: 50%;
+            color: #111;
+            background: #fff;
+            font: 27px/1 var(--display);
+            box-shadow: 4px 4px 0 #000;
+        }
+
+        .prompt span:first-child kbd { color: #e71919; }
+        .prompt span:last-child kbd { color: #17862f; }
+
+        .submenu-layer {
+            z-index: 25;
+            opacity: 0;
+            visibility: hidden;
+            overflow: hidden;
+            background: #050505;
+        }
+
+        .submenu-backdrop {
+            position: absolute;
+            inset: 0;
+            background:
+                repeating-linear-gradient(162deg, transparent 0 46px, rgba(255,255,255,.055) 46px 54px),
+                #050505;
+            clip-path: polygon(0 0, 81% 0, 100% 13%, 93% 100%, 0 100%);
+        }
+
+        .submenu-red-slice {
+            position: absolute;
+            inset: 0;
+            background: var(--deep-red);
+            clip-path: polygon(67% 0, 100% 0, 100% 100%, 81% 100%, 72% 76%, 88% 47%, 73% 25%);
+        }
+
+        .submenu-speed {
+            position: absolute;
+            z-index: 1;
+            inset: -150px -120px;
+            opacity: .28;
+            background: repeating-linear-gradient(173deg, transparent 0 72px, #fff 74px 81px, transparent 84px 126px);
+            transform: rotate(-4deg);
+            mix-blend-mode: screen;
+        }
+
+        .joker-submenu {
+            z-index: 4;
+            inset: auto auto -32px 300px;
+            width: 1040px;
+            height: 1010px;
+            object-fit: contain;
+            object-position: left bottom;
+            transform: rotate(-1.5deg);
+            transform-origin: 42% 86%;
+            filter: contrast(1.08) drop-shadow(-13px 7px 0 #fff) drop-shadow(-9px 7px 0 #000);
+        }
+
+        .submenu-body {
+            position: absolute;
+            z-index: 2;
+            left: 520px;
+            top: -165px;
+            width: 770px;
+            height: 1370px;
+            background: #deded9;
+            clip-path: polygon(27% 0, 100% 8%, 77% 100%, 0 91%, 18% 52%, 2% 25%);
+            transform: rotate(-6deg);
+            box-shadow: 22px 0 0 #000;
+        }
+
+        .godot-skill-space {
+            position: absolute;
+            z-index: 20;
+            left: 0;
+            top: 0;
+            display: none;
+            width: 1280px;
+            height: 720px;
+            overflow: hidden;
+            transform: scale(1.5);
+            transform-origin: 0 0;
+            background: #d90012;
+        }
+
+        .godot-polygons,
+        .joker-live-canvas {
+            position: absolute;
+            inset: 0;
+            width: 1280px;
+            height: 720px;
+        }
+
+        .godot-polygons { z-index: 1; }
+        .godot-skill-black { fill: #000; }
+        .godot-skill-white { fill: #cfd3cf; }
+        .godot-stars-polygon { fill: url(#godotStarPattern); }
+        .godot-stars-outline {
+            fill: none;
+            stroke: #d4d4d4;
+            stroke-width: 10px;
+            stroke-linejoin: bevel;
+        }
+
+        .joker-live-canvas {
+            z-index: 3;
+            pointer-events: none;
+        }
+
+        .joker-skill-final {
+            position: absolute;
+            z-index: 3;
+            left: 455px;
+            top: 375px;
+            width: 1027px;
+            height: 944px;
+            object-fit: contain;
+            transform: translate(-50%, -50%) scale(.9375);
+            transform-origin: center;
+            filter: contrast(1.02);
+            pointer-events: none;
+        }
+
+        .godot-color-rect {
+            position: absolute;
+            z-index: 4;
+            left: -125px;
+            top: -44px;
+            width: 303px;
+            height: 907px;
+            background: #000;
+            transform: rotate(-.100331rad);
+            transform-origin: left top;
+        }
+
+        .party-strip {
+            position: absolute;
+            z-index: 5;
+            left: 81px;
+            top: 47px;
+            width: 425px;
+            height: 705px;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 0;
+        }
+
+        .party-card {
+            position: relative;
+            flex: 0 0 100px;
+            width: 373px;
+            height: 100px;
+            border: 0;
+            padding: 0;
+            background: transparent;
+            cursor: pointer;
+            transform-origin: 150px 75px;
+            animation: party-appear 100ms calc(var(--party-index) * 50ms) linear both;
+        }
+
+        .party-card::before,
+        .party-card::after {
+            content: "";
+            position: absolute;
+            pointer-events: none;
+        }
+
+        .party-card::before {
+            z-index: 0;
+            left: -38px;
+            top: -34px;
+            width: 405px;
+            height: 146px;
+            background: #fff;
+            clip-path: polygon(14% 11%,27% 0,38% 7%,42% 20%,96% 12%,97% 37%,97% 45%,87% 48%,87% 67%,19% 70%,14% 66%,17% 51%,12% 38%);
+            transform: scale(.9568, 1.3499);
+            transform-origin: 150px 75px;
+        }
+
+        .party-card::after {
+            z-index: 1;
+            left: 0;
+            top: 19px;
+            width: 362px;
+            height: 118px;
+            background: #000;
+            clip-path: polygon(18% 31%,100% 13%,100% 57%,90% 64%,90% 100%,22% 100%);
+        }
+
+        .party-card img {
+            position: absolute;
+            z-index: 3;
+            left: 0;
+            top: 0;
+            width: 134px;
+            height: 134px;
+            object-fit: contain;
+        }
+
+        .party-selector {
+            position: absolute;
+            z-index: 2;
+            left: 45px;
+            top: 25px;
+            display: none;
+            width: 335px;
+            height: 88px;
+            transform-origin: 114px 46px;
+        }
+
+        .party-selector::before,
+        .party-selector::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            mix-blend-mode: screen;
+            animation: selector-wiggle 100ms steps(2, end) infinite alternate;
+        }
+
+        .party-selector::before {
+            background: #f00;
+            clip-path: polygon(0 42%,70% 75%,68% 34%,4% 8%);
+        }
+
+        .party-selector::after {
+            background: #00ffff;
+            clip-path: polygon(0 60%,65% 48%,70% 4%,3% 29%);
+            transform: translate(-9px, 7px);
+        }
+
+        .party-card[aria-current="true"] {
+            z-index: 2;
+            transform: scale(1.2);
+        }
+
+        .party-card[aria-current="true"] .party-selector { display: block; }
+        .party-card:focus-visible { outline: none; }
+
+        .stage.strict-skill .godot-skill-space { display: block; }
+        .stage.strict-skill .submenu-backdrop,
+        .stage.strict-skill .submenu-red-slice,
+        .stage.strict-skill .submenu-speed,
+        .stage.strict-skill .submenu-body,
+        .stage.strict-skill .joker-submenu,
+        .stage.strict-skill .submenu-title,
+        .stage.strict-skill .submenu-context,
+        .stage.strict-skill .submenu-panel,
+        .stage.strict-skill .submenu-ribbon { display: none; }
+
+        .stage.strict-skill.godot-main-hidden .command-layer {
+            opacity: 0;
+            visibility: hidden;
+        }
+
+        .submenu-layer.godot-returning {
+            mask: url(#godotReturnMask);
+            -webkit-mask: url(#godotReturnMask);
+        }
+
+        .submenu-title {
+            position: absolute;
+            z-index: 12;
+            right: 108px;
+            top: 58px;
+            min-width: 650px;
+            padding: 8px 48px 16px;
+            color: #111;
+            background: #f0f0eb;
+            font: 76px/.9 var(--display);
+            text-transform: uppercase;
+            text-align: center;
+            clip-path: polygon(4% 0, 96% 4%, 100% 78%, 8% 100%, 0 63%);
+            transform: rotate(-1.5deg);
+            filter: drop-shadow(12px 14px 0 #000) drop-shadow(18px 20px 0 var(--red));
+        }
+
+        .submenu-title::after {
+            content: "COMMAND";
+            margin-left: 18px;
+            font-size: 23px;
+        }
+
+        .submenu-context {
+            position: absolute;
+            z-index: 13;
+            right: 145px;
+            top: 157px;
+            color: #fff;
+            font: 21px/1 var(--display);
+            text-transform: uppercase;
+            transform: rotate(-1.5deg);
+            text-shadow: 3px 3px 0 #000;
+        }
+
+        .submenu-panel {
+            position: absolute;
+            z-index: 11;
+            right: 65px;
+            top: 205px;
+            width: 860px;
+            height: 710px;
+            display: grid;
+            grid-template-columns: 52% 48%;
+            gap: 12px;
+            padding: 23px 21px 24px 35px;
+            color: #fff;
+            background: #050505;
+            transform: rotate(-1.2deg);
+            clip-path: polygon(3% 0, 99% 3%, 96% 94%, 5% 100%, 0 81%);
+            box-shadow: -18px 17px 0 var(--red);
+        }
+
+        .submenu-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            min-width: 0;
+            overflow: hidden;
+        }
+
+        .submenu-item {
+            min-height: 75px;
+            border: 0;
+            padding: 8px 14px;
+            color: #f2f2f0;
+            background: transparent;
+            text-align: left;
+            cursor: pointer;
+            font-size: 22px;
+            font-weight: 900;
+            line-height: 1.15;
+            display: grid;
+            grid-template-columns: 40px minmax(0, 1fr) auto;
+            align-items: center;
+            gap: 9px;
+            clip-path: polygon(2% 0, 100% 8%, 96% 100%, 0 86%);
+            transition: color 60ms linear, background-color 70ms linear, transform 130ms cubic-bezier(.18,.84,.22,1.1);
+        }
+
+        .submenu-index {
+            color: #a7a7a3;
+            font: 21px/1 var(--display);
+        }
+
+        .submenu-label {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .submenu-cost {
+            color: #13ead2;
+            font: 17px/1 var(--display);
+            white-space: nowrap;
+        }
+
+        .submenu-skill-icon {
+            display: none;
+            width: 38px;
+            height: 16px;
+            object-fit: cover;
+        }
+
+        .submenu-layer[data-menu="skill"] .submenu-index { display: none; }
+        .submenu-layer[data-menu="skill"] .submenu-skill-icon { display: block; }
+
+        .submenu-item[aria-current="true"] {
+            color: #fff;
+            background: var(--red);
+            transform: translateX(9px) rotate(-1deg);
+            box-shadow: -9px 0 0 var(--cyan);
+        }
+
+        .submenu-item[aria-current="true"] .submenu-index,
+        .submenu-item[aria-current="true"] .submenu-cost { color: #fff; }
+
+        .submenu-list[data-direction="down"] .submenu-item.selection-hit { animation: submenu-hit-down 190ms cubic-bezier(.16,.86,.22,1.15); }
+        .submenu-list[data-direction="up"] .submenu-item.selection-hit { animation: submenu-hit-up 190ms cubic-bezier(.16,.86,.22,1.15); }
+
+        .detail {
+            position: relative;
+            min-width: 0;
+            padding: 31px 29px 105px;
+            color: #111;
+            background: #eee;
+            clip-path: polygon(4% 0, 100% 3%, 96% 100%, 0 94%);
+            transform: rotate(1deg);
+            overflow: hidden;
+        }
+
+        .detail::before {
+            content: "";
+            position: absolute;
+            right: -70px;
+            top: -55px;
+            width: 210px;
+            height: 165px;
+            background: var(--red);
+            clip-path: polygon(20% 0,100% 12%,82% 100%,0 68%);
+            opacity: .94;
+        }
+
+        .detail .eyebrow {
+            color: var(--red);
+            font: 23px/1 var(--display);
+            text-transform: uppercase;
+        }
+
+        .detail h2 {
+            margin: 13px 0 17px;
+            font-size: 32px;
+            line-height: 1.1;
+            overflow-wrap: anywhere;
+        }
+
+        .detail p {
+            margin: 0;
+            font-size: 20px;
+            font-weight: 700;
+            line-height: 1.55;
+        }
+
+        .detail-action {
+            position: absolute;
+            right: 34px;
+            bottom: 42px;
+            min-width: 210px;
+            border: 0;
+            padding: 13px 25px;
+            color: #fff;
+            background: #090909;
+            cursor: pointer;
+            font: 25px/1 var(--display);
+            clip-path: polygon(4% 0, 100% 8%, 94% 100%, 0 86%);
+        }
+
+        .detail-action:hover,
+        .detail-action:focus-visible { background: var(--red); outline: none; }
+
+        .submenu-ribbon {
+            position: absolute;
+            z-index: 12;
+            left: 560px;
+            bottom: 25px;
+            color: #fff;
+            font: 86px/.85 var(--display);
+            text-transform: uppercase;
+            transform: rotate(-7deg);
+            text-shadow: 9px 9px 0 #000, 14px 14px 0 var(--red);
+            pointer-events: none;
+        }
+
+        .wipe {
+            z-index: 60;
+            background: transparent;
+            clip-path: polygon(100% 0, 100% 0, 100% 100%, 100% 100%);
+        }
+
+        .wipe::before {
+            content: "";
+            position: absolute;
+            inset: -6%;
+            background: #242424 url("assets/p5r-godot/screen_transition_test.png") center / cover;
+            background-blend-mode: multiply;
+            filter: contrast(1.75) brightness(.62);
+        }
+
+        .flash {
+            z-index: 61;
+            background: #fff;
+            opacity: 0;
+            mix-blend-mode: screen;
+        }
+
+        .stage[data-phase^="submenu"] .command-layer { pointer-events: none; }
+
+        .stage[data-phase="opening"] .room,
+        .stage[data-phase="opening"] .red-wash,
+        .stage[data-phase="opening"] .speed-lines,
+        .stage[data-phase="opening"] .star-field,
+        .stage[data-phase="opening"] .stars,
+        .stage[data-phase="opening"] .joker-outline,
+        .stage[data-phase="opening"] .joker-command,
+        .stage[data-phase="opening"] .joker-hair-halftone,
+        .stage[data-phase="opening"] .hand-final,
+        .stage[data-phase="opening"] .joker-godot,
+        .stage[data-phase="opening"] .command-asset,
+        .stage[data-phase="opening"] .command-menu,
+        .stage[data-phase="opening"] .brand-lockup,
+        .stage[data-phase="opening"] .command-word,
+        .stage[data-phase="opening"] .prompt { opacity: 0; }
+
+        .stage[data-phase="opening"] .command-menu { pointer-events: none; }
+
+        .stage[data-phase="submenu-opening"] .command-layer {
+            animation: command-out 360ms cubic-bezier(.63,0,.84,.24) both;
+        }
+
+        .stage[data-phase="submenu-opening"] .wipe { animation: wipe-across 520ms ease-in-out both; }
+        .stage[data-phase="submenu-opening"] .flash { animation: flash 430ms 90ms linear both; }
+        .stage[data-phase="submenu-opening"] .submenu-layer,
+        .stage[data-phase="submenu"] .submenu-layer {
+            opacity: 1;
+            visibility: visible;
+            pointer-events: auto;
+        }
+
+        .stage[data-phase="submenu-opening"] .submenu-layer { animation: submenu-in 500ms 100ms cubic-bezier(.12,.89,.19,1.03) both; }
+        .stage[data-phase="submenu-opening"] .submenu-panel { animation: submenu-impact 200ms 430ms linear both; }
+        .stage[data-phase="submenu-opening"] .party-card { animation: party-arrive 260ms calc(150ms + var(--party-index) * 50ms) cubic-bezier(.15,.88,.2,1.05) both; }
+
+        .stage[data-phase="submenu"] .command-layer,
+        .stage[data-phase="submenu"] .brand-lockup,
+        .stage[data-phase="submenu"] .command-word { opacity: 0; visibility: hidden; }
+
+        .stage[data-phase="submenu-closing"] .command-layer { animation: command-return 520ms 100ms cubic-bezier(.12,.9,.2,1.04) both; }
+        .stage[data-phase="submenu-closing"] .submenu-layer { opacity: 1; visibility: visible; animation: submenu-out 440ms cubic-bezier(.6,0,.82,.3) both; }
+        .stage[data-phase="submenu-closing"] .wipe { animation: wipe-back 600ms ease-in-out both; }
+
+        .stage.strict-skill[data-phase="submenu-opening"] .command-layer,
+        .stage.strict-skill[data-phase="submenu-closing"] .command-layer { animation: none; }
+        .stage.strict-skill[data-phase="submenu-opening"] .submenu-layer,
+        .stage.strict-skill[data-phase="submenu-closing"] .submenu-layer {
+            opacity: 1;
+            visibility: visible;
+            animation: none;
+        }
+        .stage.strict-skill[data-phase="submenu-opening"] .wipe,
+        .stage.strict-skill[data-phase="submenu-opening"] .flash,
+        .stage.strict-skill[data-phase="submenu-closing"] .wipe,
+        .stage.strict-skill[data-phase="submenu-closing"] .flash { animation: none; opacity: 0; }
+        .stage.strict-skill[data-phase="submenu-opening"] .party-card {
+            animation: party-appear 100ms calc(var(--party-index) * 50ms) linear both;
+        }
+
+        .reference {
+            z-index: 90;
+            object-fit: cover;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 80ms linear;
+        }
+
+        .stage.ref-on .reference { visibility: visible; opacity: var(--ref-opacity, .5); }
+
+        .grain {
+            z-index: 80;
+            opacity: .11;
+            mix-blend-mode: overlay;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='128' height='128'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.7'/%3E%3C/svg%3E");
+        }
+
+        .calibration {
+            position: fixed;
+            z-index: 200;
+            top: 14px;
+            right: 14px;
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            padding: 8px 10px;
+            color: #fff;
+            background: rgba(0,0,0,.88);
+            border: 2px solid #fff;
+            font-size: 12px;
+            font-weight: 900;
+            box-shadow: 5px 5px 0 var(--red);
+        }
+
+        .tool-button {
+            width: 34px;
+            height: 30px;
+            border: 0;
+            padding: 0;
+            color: #fff;
+            background: #222;
+            cursor: pointer;
+            font-weight: 900;
+        }
+
+        .tool-button[aria-pressed="true"],
+        .tool-button:hover,
+        .tool-button:focus-visible { background: var(--red); outline: 2px solid #fff; outline-offset: 1px; }
+
+        .calibration input { width: 110px; accent-color: var(--red); }
+        .ref-value { min-width: 34px; font-variant-numeric: tabular-nums; }
+
+        @keyframes command-out { to { opacity: 0; transform: translate(420px, 70px) rotate(7deg) scale(1.25); } }
+        @keyframes command-return { from { opacity: 0; transform: translate(-300px, 90px) rotate(-8deg) scale(1.24); } to { opacity: 1; } }
+        @keyframes wipe-across { 0% { clip-path: polygon(100% 0,100% 0,100% 100%,100% 100%); } 48% { clip-path: polygon(20% 0,100% 0,100% 100%,0 100%); } 100% { clip-path: polygon(0 0,0 0,0 100%,0 100%); } }
+        @keyframes wipe-back { 0% { clip-path: polygon(0 0,0 0,0 100%,0 100%); } 50% { clip-path: polygon(0 0,80% 0,100% 100%,0 100%); } 100% { clip-path: polygon(100% 0,100% 0,100% 100%,100% 100%); } }
+        @keyframes flash { 0%,100% { opacity: 0; } 42% { opacity: .12; } }
+        @keyframes submenu-in { from { opacity: 0; transform: translateX(480px) skewX(-9deg) scale(1.12); } }
+        @keyframes submenu-out { to { opacity: 0; transform: translateX(-420px) skewX(8deg) scale(1.16); } }
+        @keyframes submenu-impact {
+            0% { transform: translate(0, 0) rotate(-1.2deg); }
+            22% { transform: translate(-38px, 21px) rotate(-2deg); }
+            43% { transform: translate(26px, -15px) rotate(-.5deg); }
+            64% { transform: translate(-14px, 8px) rotate(-1.5deg); }
+            82% { transform: translate(6px, -4px) rotate(-1deg); }
+            100% { transform: translate(0, 0) rotate(-1.2deg); }
+        }
+        @keyframes party-arrive {
+            from { opacity: 0; transform: translateX(-190px) skewX(-10deg) scale(.78, 1.18); }
+        }
+        @keyframes party-appear {
+            from { opacity: 0; translate: 50px 0; }
+            to { opacity: 1; translate: 0 0; }
+        }
+        @keyframes selector-wiggle {
+            from { translate: -5px 3px; rotate: -1deg; }
+            to { translate: 5px -3px; rotate: 1deg; }
+        }
+        @keyframes godot-skill-shake {
+            0% { transform: translate(-68px, 54px); }
+            18% { transform: translate(57px, -45px); }
+            36% { transform: translate(-47px, 38px); }
+            54% { transform: translate(33px, -28px); }
+            72% { transform: translate(-22px, 17px); }
+            88% { transform: translate(9px, -7px); }
+            100% { transform: translate(0, 0); }
+        }
+        .submenu-layer.godot-impact { animation: godot-skill-shake 200ms steps(1, end) both; }
+        @keyframes godot-impact {
+            0% { transform: translate(0, 0); }
+            16% { transform: translate(-48px, 27px) rotate(-.45deg); }
+            34% { transform: translate(35px, -22px) rotate(.34deg); }
+            52% { transform: translate(-21px, 13px) rotate(-.2deg); }
+            70% { transform: translate(12px, -7px) rotate(.1deg); }
+            86% { transform: translate(-5px, 3px); }
+            100% { transform: translate(0, 0); }
+        }
+
+        .command-layer.godot-impact {
+            animation: godot-impact 200ms linear both;
+        }
+
+        @keyframes selector-arrive {
+            0% { opacity: 0; transform: translateX(-50%) rotate(-8deg) scale(.25, 1.45); }
+            58% { opacity: 1; transform: translateX(-50%) rotate(2deg) scale(1.13, .88); }
+            100% { opacity: 1; transform: translateX(-50%) rotate(var(--selector-tilt)) scale(1); }
+        }
+        @keyframes selector-hit-down {
+            0% { transform: translateX(-50%) translateY(-24px) rotate(-5deg) scale(.72, 1.34); }
+            58% { transform: translateX(-50%) translateY(4px) rotate(2deg) scale(1.09, .9); }
+            100% { transform: translateX(-50%) rotate(var(--selector-tilt)) scale(1); }
+        }
+        @keyframes selector-hit-up {
+            0% { transform: translateX(-50%) translateY(24px) rotate(4deg) scale(.72, 1.34); }
+            58% { transform: translateX(-50%) translateY(-4px) rotate(-3deg) scale(1.09, .9); }
+            100% { transform: translateX(-50%) rotate(var(--selector-tilt)) scale(1); }
+        }
+        @keyframes menu-recoil-down {
+            0% { transform: rotate(-4deg) translateY(-5px); }
+            55% { transform: rotate(-4deg) translateY(3px); }
+            100% { transform: rotate(-4deg); }
+        }
+        @keyframes menu-recoil-up {
+            0% { transform: rotate(-4deg) translateY(5px); }
+            55% { transform: rotate(-4deg) translateY(-3px); }
+            100% { transform: rotate(-4deg); }
+        }
+        @keyframes menu-item-arrive {
+            0% { opacity: 0; transform: translateX(calc(var(--shift) + 92px)) rotate(calc(var(--tilt) + 7deg)) scale(.72, 1.34); }
+            60% { opacity: 1; transform: translateX(calc(var(--shift) - 8px)) rotate(calc(var(--tilt) - 2deg)) scale(1.06, .96); }
+            100% { opacity: 1; }
+        }
+        @keyframes item-hit-down {
+            0% { transform: translateX(calc(var(--shift) + 14px)) translateY(-18px) rotate(calc(var(--tilt) - 4deg)) scale(.88, 1.22); }
+            58% { transform: translateX(calc(var(--shift) + 30px)) translateY(4px) rotate(calc(var(--tilt) + 1deg)) scale(1.18, .94); }
+            100% { transform: translateX(calc(var(--shift) + 24px)) rotate(calc(var(--tilt) - 1deg)) scale(1.12); }
+        }
+        @keyframes item-hit-up {
+            0% { transform: translateX(calc(var(--shift) + 14px)) translateY(18px) rotate(calc(var(--tilt) + 4deg)) scale(.88, 1.22); }
+            58% { transform: translateX(calc(var(--shift) + 30px)) translateY(-4px) rotate(calc(var(--tilt) - 2deg)) scale(1.18, .94); }
+            100% { transform: translateX(calc(var(--shift) + 24px)) rotate(calc(var(--tilt) - 1deg)) scale(1.12); }
+        }
+        @keyframes submenu-hit-down {
+            0% { transform: translateX(-5px) translateY(-12px) skewX(-8deg) scale(.94, 1.13); }
+            60% { transform: translateX(13px) translateY(2px) skewX(2deg) scale(1.03, .96); }
+            100% { transform: translateX(9px) rotate(-1deg); }
+        }
+        @keyframes submenu-hit-up {
+            0% { transform: translateX(-5px) translateY(12px) skewX(8deg) scale(.94, 1.13); }
+            60% { transform: translateX(13px) translateY(-2px) skewX(-2deg) scale(1.03, .96); }
+            100% { transform: translateX(9px) rotate(-1deg); }
+        }
+        /* Negative per-ring delays make each nested star contour propagate from the center outward. */
+        @keyframes star-ring-wave {
+            0%, 12% { opacity: .38; transform: translate(-50%, -50%) scale(.965); filter: brightness(.78); }
+            24% { opacity: 1; transform: translate(-50%, -50%) scale(1.07); filter: brightness(1.35) drop-shadow(0 0 5px rgba(255,255,255,.36)); }
+            39% { opacity: .76; transform: translate(-50%, -50%) scale(1.015); filter: brightness(1.08); }
+            58%, 100% { opacity: .54; transform: translate(-50%, -50%) scale(1); filter: brightness(.94); }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after { animation-duration: 1ms !important; animation-delay: 0ms !important; transition-duration: 1ms !important; }
+            .star-ring { animation: none !important; opacity: .68; }
+        }
+    </style>
+</head>
+<body>
+    <main class="app">
+        <div class="screen" id="screen">
+            <section class="stage" id="stage" data-phase="opening" aria-label="P5R command menu demo">
+                <img class="room" src="assets/p5r-replica/room-red.jpg" alt="">
+                <div class="red-wash"></div>
+                <div class="speed-lines"></div>
+                <div class="star-field">
+                    <canvas class="star-canvas" id="starCanvas" width="1920" height="1080" aria-hidden="true"></canvas>
+                    <div class="stars-scroll" aria-hidden="true"></div>
+                    <div class="stars stars-accent" aria-hidden="true"></div>
+                </div>
+
+                <div class="command-layer">
+                    <img class="joker joker-silhouette" src="assets/p5r-replica/joker-command-silhouette.png" alt="">
+                    <img class="joker joker-outline" src="assets/p5r-replica/joker-video-outline.png" alt="">
+                    <img class="joker joker-command" src="assets/p5r-replica/joker-video-cutout.png" alt="雨宫莲">
+                    <div class="joker-hair-halftone" aria-hidden="true"></div>
+                    <img class="hand hand-gray" src="assets/p5r-replica/hand-gray-frame66.png" alt="">
+                    <img class="hand hand-final" src="assets/p5r-replica/hand-layer.png" alt="">
+                    <img class="joker-godot" src="assets/p5r-godot/joker_main_menu.png" alt="雨宫莲">
+                    <img class="command-asset" src="assets/p5r-godot/command.png" alt="COMMAND">
+                    <nav class="command-menu" aria-label="Command menu" inert>
+                        <span class="menu-selector" aria-hidden="true"><i class="selector-shard"></i><i class="selector-shard"></i></span>
+                        <button class="command-item has-asset" style="--i:0" data-id="skill" aria-current="true"><img src="assets/p5r-godot/menu_skill.png" alt=""><span class="label-text">SkiLL</span></button>
+                        <button class="command-item has-asset" style="--i:1" data-id="item"><img src="assets/p5r-godot/menu_Item.png" alt=""><span class="label-text">ITeM</span></button>
+                        <button class="command-item has-asset" style="--i:2" data-id="equip"><img src="assets/p5r-godot/menu_Equip.png" alt=""><span class="label-text">EQuiP</span></button>
+                        <button class="command-item" style="--i:3" data-id="persona">PeRSoNA</button>
+                        <button class="command-item" style="--i:4" data-id="status">STaTuS</button>
+                        <button class="command-item" style="--i:5" data-id="cooperation">CooPeRaTioN</button>
+                        <button class="command-item" style="--i:6" data-id="calendar">CaLeNDaR</button>
+                        <button class="command-item" style="--i:7" data-id="system">SySTeM</button>
+                        <button class="command-item" style="--i:8" data-id="palace">My PaLaCe</button>
+                    </nav>
+                    <div class="brand-lockup"><strong>MeNu &amp; MaiN</strong><small>COMMAND SELECT</small></div>
+                    <div class="command-word">CoMMaND</div>
+                </div>
+
+                <section class="submenu-layer" aria-label="Submenu" aria-hidden="true" inert>
+                    <div class="godot-skill-space" aria-hidden="true">
+                        <svg class="godot-polygons" viewBox="0 0 1280 720" aria-hidden="true">
+                            <defs>
+                                <pattern id="godotStarPattern" width="533" height="384" patternUnits="userSpaceOnUse">
+                                    <image href="assets/p5r-replica/stars-tile.png" width="533" height="384"></image>
+                                </pattern>
+                            </defs>
+                            <g transform="translate(68 68)">
+                                <polygon class="godot-skill-black" points="710,818 1242,227 672,-165 162,714"></polygon>
+                                <polygon id="godotSkillWhite" class="godot-skill-white" transform="translate(-20 -28)"></polygon>
+                            </g>
+                            <polygon id="godotStarsPolygon" class="godot-stars-polygon"></polygon>
+                            <polygon id="godotStarsOutline" class="godot-stars-outline"></polygon>
+                        </svg>
+                        <canvas class="joker-live-canvas" id="jokerLiveCanvas" width="1280" height="720" aria-hidden="true" hidden></canvas>
+                        <img class="joker-skill-final" id="jokerSkillFinal" src="assets/p5r-godot/joker_skill.png" alt="雨宫莲" hidden>
+                        <div class="godot-color-rect" aria-hidden="true"></div>
+                        <div class="party-strip" aria-label="Party members">
+                            <button class="party-card" type="button" style="--party-index:0" aria-current="true"><span class="party-selector" aria-hidden="true"></span><img src="assets/p5r-godot/joker_icon.png" alt="雨宫莲"></button>
+                            <button class="party-card" type="button" style="--party-index:1"><span class="party-selector" aria-hidden="true"></span><img src="assets/p5r-godot/joker_icon.png" alt="队伍成员 2"></button>
+                            <button class="party-card" type="button" style="--party-index:2"><span class="party-selector" aria-hidden="true"></span><img src="assets/p5r-godot/joker_icon.png" alt="队伍成员 3"></button>
+                        </div>
+                    </div>
+                    <div class="submenu-backdrop"></div>
+                    <div class="submenu-red-slice"></div>
+                    <div class="submenu-speed" aria-hidden="true"></div>
+                    <div class="submenu-body"></div>
+                    <img class="joker joker-submenu" src="assets/p5r-godot/joker_skill.png" alt="雨宫莲">
+                    <div class="submenu-title" id="submenuTitle">SKILL</div>
+                    <div class="submenu-context" id="submenuContext">CHOOSE A RECORD</div>
+                    <div class="submenu-panel">
+                        <div class="submenu-list" id="submenuList"></div>
+                        <article class="detail" aria-live="polite">
+                            <div class="eyebrow" id="detailMeta"></div>
+                            <h2 id="detailTitle"></h2>
+                            <p id="detailText"></p>
+                            <button class="detail-action" id="detailAction">CONFIRM</button>
+                        </article>
+                    </div>
+                    <div class="submenu-ribbon" id="submenuRibbon">PERSONA SKILLS</div>
+                </section>
+
+                <svg class="transition-definitions" width="0" height="0" aria-hidden="true">
+                    <defs>
+                        <filter id="godotReturnThreshold" color-interpolation-filters="sRGB">
+                            <feComponentTransfer>
+                                <feFuncR id="godotThresholdR" type="linear" slope="64" intercept="0"></feFuncR>
+                                <feFuncG id="godotThresholdG" type="linear" slope="64" intercept="0"></feFuncG>
+                                <feFuncB id="godotThresholdB" type="linear" slope="64" intercept="0"></feFuncB>
+                            </feComponentTransfer>
+                        </filter>
+                        <mask id="godotReturnMask" maskUnits="userSpaceOnUse" x="0" y="0" width="1920" height="1080" mask-type="luminance">
+                            <image href="assets/p5r-godot/screen_transition_test.png" x="0" y="0" width="1920" height="1080" preserveAspectRatio="none" filter="url(#godotReturnThreshold)"></image>
+                        </mask>
+                    </defs>
+                </svg>
+
+                <div class="prompt"><span><kbd>B</kbd>BACK</span><span><kbd>A</kbd>SELECT</span></div>
+                <div class="wipe"></div>
+                <div class="flash"></div>
+                <img class="reference" id="reference" src="assets/p5r-replica/reference-007.jpg" alt="Original frame calibration overlay">
+                <div class="grain"></div>
+            </section>
+        </div>
+
+        <div class="calibration" aria-label="Calibration controls">
+            <button class="tool-button" id="replay" title="Replay transition" aria-label="Replay transition">↻</button>
+            <button class="tool-button" id="refToggle" title="Toggle reference overlay" aria-label="Toggle reference overlay" aria-pressed="false">REF</button>
+            <input id="refOpacity" type="range" min="0" max="100" value="50" aria-label="Reference opacity">
+            <output class="ref-value" id="refValue">50%</output>
+        </div>
+    </main>
+
+    <script src="../src/post/posts.js"></script>
+    <script src="../img/gallery/gallery.js"></script>
+    <script src="p5r-godot-port.js"></script>
+    <script type="module">
+        document.documentElement.dataset.moduleRuntime = 'ready';
+        import('./p5r-godot-model.js').catch((error) => {
+            const canvas = document.querySelector('#jokerLiveCanvas');
+            canvas.dataset.modelState = 'error';
+            canvas.dataset.modelError = error?.message || String(error);
+            console.warn('Unable to initialize the repository Joker model.', error);
+        });
+    </script>
+    <script>
+        (() => {
+            const stage = document.querySelector('#stage');
+            const screen = document.querySelector('#screen');
+            const mainItems = [...document.querySelectorAll('.command-item')];
+            const submenuLayer = document.querySelector('.submenu-layer');
+            const submenuList = document.querySelector('#submenuList');
+            const submenuTitle = document.querySelector('#submenuTitle');
+            const submenuContext = document.querySelector('#submenuContext');
+            const submenuRibbon = document.querySelector('#submenuRibbon');
+            const jokerSubmenu = document.querySelector('.joker-submenu');
+            const jokerSkillFinal = document.querySelector('#jokerSkillFinal');
+            const partyCards = [...document.querySelectorAll('.party-card')];
+            const godotStarsPolygon = document.querySelector('#godotStarsPolygon');
+            const godotStarsOutline = document.querySelector('#godotStarsOutline');
+            const godotSkillWhite = document.querySelector('#godotSkillWhite');
+            const godotThresholdChannels = [
+                document.querySelector('#godotThresholdR'),
+                document.querySelector('#godotThresholdG'),
+                document.querySelector('#godotThresholdB')
+            ];
+            const detailMeta = document.querySelector('#detailMeta');
+            const detailTitle = document.querySelector('#detailTitle');
+            const detailText = document.querySelector('#detailText');
+            const detailAction = document.querySelector('#detailAction');
+            const reference = document.querySelector('#reference');
+            const refToggle = document.querySelector('#refToggle');
+            const refOpacity = document.querySelector('#refOpacity');
+            const refValue = document.querySelector('#refValue');
+            const replay = document.querySelector('#replay');
+            const room = document.querySelector('.room');
+            const redWash = document.querySelector('.red-wash');
+            const speedLines = document.querySelector('.speed-lines');
+            const starField = document.querySelector('.star-field');
+            const starCanvas = document.querySelector('#starCanvas');
+            const starsScroll = document.querySelector('.stars-scroll');
+            const starsAccent = document.querySelector('.stars-accent');
+            const jokerSilhouette = document.querySelector('.joker-silhouette');
+            const jokerOutline = document.querySelector('.joker-outline');
+            const jokerCommand = document.querySelector('.joker-command');
+            const jokerHairHalftone = document.querySelector('.joker-hair-halftone');
+            const handGray = document.querySelector('.hand-gray');
+            const handFinal = document.querySelector('.hand-final');
+            const jokerGodot = document.querySelector('.joker-godot');
+            const commandAsset = document.querySelector('.command-asset');
+            const commandLayer = document.querySelector('.command-layer');
+            const commandMenu = document.querySelector('.command-menu');
+            const brandLockup = document.querySelector('.brand-lockup');
+            const commandWord = document.querySelector('.command-word');
+            const prompt = document.querySelector('.prompt');
+
+            const postData = (window.POSTS || []).slice(0, 7).map((post, index) => ({
+                label: post.title || `ARCHIVE ${index + 1}`,
+                meta: `${post.date || 'ARCHIVE'} · ${post.kindLabel || 'BLOG'}`,
+                text: post.excerpt || '博客文章与项目记录。',
+                href: `../src/blog.html?id=${encodeURIComponent(post.id || '')}`
+            }));
+
+            const generic = {
+                item: ['随身记录', '项目资料', '截图收藏', '阅读清单', '灵感碎片'],
+                equip: ['前端界面', '游戏客户端', '动画系统', '构建脚本', '调试工具'],
+                persona: ['关于我', '技术栈', '项目经历', '开发习惯', '联系方式'],
+                status: ['当前进度', '最近更新', '代码统计', '阅读状态', '站点信息'],
+                cooperation: ['GitHub', 'Bilibili', '邮件联系', '友情链接', '协作项目'],
+                calendar: ['2026 年 10 月', '2026 年 9 月', '2026 年 8 月', '更早归档'],
+                system: ['动效强度', '音效设置', '界面缩放', '高对比度', '返回首页'],
+                palace: ['画廊入口', '界面实验', '动效原型', '视觉收藏', '隐藏页面']
+            };
+
+            const labels = {
+                skill: 'SKILL', item: 'ITEM', equip: 'EQUIP', persona: 'PERSONA', status: 'STATUS',
+                cooperation: 'COOPERATION', calendar: 'CALENDAR', system: 'SYSTEM', palace: 'MY PALACE'
+            };
+
+            const submenuCopy = {
+                skill: ['CHOOSE A RECORD', 'PERSONA SKILLS'],
+                item: ['SELECT AN ITEM', 'ITEM STOCK'],
+                equip: ['CHANGE EQUIPMENT', 'ARSENAL'],
+                persona: ['CHECK PROFILE', 'PERSONA FILE'],
+                status: ['VIEW CURRENT DATA', 'STATUS REPORT'],
+                cooperation: ['CHECK CONNECTIONS', 'COOPERATION'],
+                calendar: ['BROWSE THE ARCHIVE', 'CALENDAR'],
+                system: ['ADJUST SETTINGS', 'SYSTEM'],
+                palace: ['ENTER THE GALLERY', 'MY PALACE']
+            };
+
+            let phase = 'opening';
+            let mainIndex = 0;
+            let subIndex = 0;
+            let partyIndex = 0;
+            let activeMenuId = 'skill';
+            let activeEntries = [];
+            let transitionToken = 0;
+            let transitionFrame = 0;
+            let openingToken = 0;
+            let openingFrame = 0;
+            let selectionMotionTimer = 0;
+
+            const starClusters = [
+                { x: 1370, y: -30, size: 860, rotation: -7, rings: 10, cycle: 3.5, phase: -.2, tone: '#f2f2ee' },
+                { x: 1805, y: 250, size: 690, rotation: 5, rings: 9, cycle: 3.9, phase: -1.4, tone: '#c5c5c1' },
+                { x: 1420, y: 545, size: 860, rotation: -5, rings: 10, cycle: 3.7, phase: -2.1, tone: '#eeeeea' },
+                { x: 1810, y: 790, size: 780, rotation: 7, rings: 10, cycle: 4.1, phase: -.8, tone: '#c2c2be' },
+                { x: 1510, y: 1090, size: 660, rotation: -8, rings: 9, cycle: 3.6, phase: -2.7, tone: '#f0f0ec' },
+                { x: 1100, y: 30, size: 430, rotation: 6, rings: 7, cycle: 3.25, phase: -1.7, tone: '#ffffff' },
+                { x: 1640, y: 55, size: 390, rotation: -4, rings: 6, cycle: 3.4, phase: -2.5, tone: '#ddddda' },
+                { x: 1120, y: 380, size: 410, rotation: -8, rings: 7, cycle: 3.55, phase: -.9, tone: '#e9e9e5' },
+                { x: 1760, y: 525, size: 460, rotation: 5, rings: 7, cycle: 3.15, phase: -2.2, tone: '#ffffff' },
+                { x: 1260, y: 725, size: 420, rotation: 7, rings: 7, cycle: 3.45, phase: -1.3, tone: '#d6d6d2' },
+                { x: 1660, y: 955, size: 470, rotation: -6, rings: 7, cycle: 3.65, phase: -2.9, tone: '#f4f4ef' },
+                { x: 1210, y: 1050, size: 350, rotation: 4, rings: 6, cycle: 3.2, phase: -.4, tone: '#ffffff' },
+                { x: 1245, y: 228, size: 232, rotation: -8, rings: 4, cycle: 2.9, phase: -1.1, tone: '#ffffff' },
+                { x: 1605, y: 420, size: 296, rotation: 8, rings: 5, cycle: 3.2, phase: -2.4, tone: '#efefeb' },
+                { x: 1455, y: 815, size: 250, rotation: -4, rings: 4, cycle: 3, phase: -.5, tone: '#ffffff' },
+                { x: 1810, y: 1015, size: 208, rotation: 6, rings: 4, cycle: 3.3, phase: -1.8, tone: '#dededa' }
+            ];
+
+            const godotStarTrack = [
+                { time: 0, curve: 1, points: [1318,753, 1311,-82, 839,-79, 562,762] },
+                { time: 500 / 6, curve: 1, points: [1318,753, 1337,-12, 1335,-22, -38,752] },
+                { time: 600 / 6, curve: 1, points: [-21,777, 1973,766, 1335,-22, -38,752] },
+                { time: 1000 / 6, curve: 1, points: [-21,777, -14,801, 1340,746, -38,-60] },
+                { time: 1100 / 6, curve: 1, points: [-54,-59, -14,801, 1340,746, -38,-60] },
+                { time: 1700 / 6, curve: 1, points: [-54,-59, -30,765, 516,751, 944,-25] },
+                { time: 2100 / 6, curve: 2.82843, points: [-54,-59, -30,765, 516,751, 944,-25] },
+                { time: 2900 / 6, curve: 1, points: [-54,-59, -30,765, 319,755, 806,-35] }
+            ];
+            const godotWhiteReset = [730,877, 1308,113, 504,-203, 146,769];
+            const godotWhiteTrack = [
+                { time: 2100 / 6, curve: 1.46409, points: [730,877, 1384,173, 504,-203, 146,769] },
+                { time: 2700 / 6, curve: 2.73208, points: [730,877, 1416,281, 1302,-111, 146,769] },
+                { time: 2900 / 6, curve: 1, points: [730,877, 1290,635, 1306,449, 128,733] }
+            ];
+
+            function pointsAttribute(points) {
+                const pairs = [];
+                for (let index = 0; index < points.length; index += 2) pairs.push(`${points[index]},${points[index + 1]}`);
+                return pairs.join(' ');
+            }
+
+            function godotEase(value, curve) {
+                if (curve === 1) return value;
+                if (curve > 1) return value ** curve;
+                return 1 - ((1 - value) ** (1 / Math.max(curve, .0001)));
+            }
+
+            function sampleGodotTrack(track, elapsed, beforeFirst) {
+                if (elapsed < track[0].time) return beforeFirst || track[0].points;
+                for (let index = 0; index < track.length - 1; index += 1) {
+                    const current = track[index];
+                    const next = track[index + 1];
+                    if (elapsed <= next.time) {
+                        const progress = godotEase((elapsed - current.time) / (next.time - current.time), current.curve);
+                        return current.points.map((value, pointIndex) => value + (next.points[pointIndex] - value) * progress);
+                    }
+                }
+                return track.at(-1).points;
+            }
+
+            // The source animation mutates raw Polygon2D vertices; keeping its 1280x720 coordinates avoids CSS-shape drift.
+            function setGodotPolygons(animationTime) {
+                const stars = pointsAttribute(sampleGodotTrack(godotStarTrack, animationTime));
+                godotStarsPolygon.setAttribute('points', stars);
+                godotStarsOutline.setAttribute('points', stars);
+                godotSkillWhite.setAttribute('points', pointsAttribute(sampleGodotTrack(godotWhiteTrack, animationTime, godotWhiteReset)));
+            }
+
+            function selectParty(index, focus = false) {
+                partyIndex = (index + partyCards.length) % partyCards.length;
+                partyCards.forEach((card, cardIndex) => card.setAttribute('aria-current', String(cardIndex === partyIndex)));
+                if (focus) partyCards[partyIndex]?.focus({ preventScroll: true });
+            }
+
+            function buildStarRipples() {
+                const fragment = document.createDocumentFragment();
+                starClusters.forEach((config) => {
+                    const cluster = document.createElement('span');
+                    cluster.className = 'star-cluster';
+                    cluster.style.cssText = `--x:${config.x}px;--y:${config.y}px;--size:${config.size}px;--rotation:${config.rotation}deg;--cycle:${config.cycle}s;--tone:${config.tone};--stroke:${Math.max(10, Math.round(config.size / 42))}px`;
+
+                    // Rings are stored outside-in, but delayed inside-out so the wave keeps a star silhouette.
+                    for (let ringIndex = 0; ringIndex < config.rings; ringIndex += 1) {
+                        const ring = document.createElement('i');
+                        const size = 100 - ringIndex * (84 / Math.max(1, config.rings - 1));
+                        ring.className = 'star-ring';
+                        ring.style.cssText = `--ring-size:${size}%;--delay:${config.phase - ringIndex * .14}s`;
+                        cluster.append(ring);
+                    }
+                    fragment.append(cluster);
+                });
+                starsScroll.replaceChildren(fragment);
+            }
+
+            function fitStage() {
+                const scale = Math.min(innerWidth / 1920, innerHeight / 1080);
+                screen.style.width = `${1920 * scale}px`;
+                screen.style.height = `${1080 * scale}px`;
+                stage.style.transform = `scale(${scale})`;
+            }
+
+            function setPhase(next) {
+                phase = next;
+                stage.dataset.phase = next;
+                commandMenu.toggleAttribute('inert', next !== 'main');
+                submenuLayer.toggleAttribute('inert', next !== 'submenu');
+            }
+
+            function replaySelectionMotion(container, item, direction) {
+                clearTimeout(selectionMotionTimer);
+                container.dataset.direction = direction;
+                container.classList.remove('is-snapping', 'menu-recoil');
+                container.querySelectorAll('.selection-hit').forEach((entry) => entry.classList.remove('selection-hit'));
+
+                // Reading layout here intentionally restarts the short CSS impact after repeated key presses.
+                void container.offsetWidth;
+                container.classList.add('is-snapping', 'menu-recoil');
+                item.classList.add('selection-hit');
+                selectionMotionTimer = setTimeout(() => {
+                    container.classList.remove('is-snapping', 'menu-recoil');
+                    container.querySelectorAll('.selection-hit').forEach((entry) => entry.classList.remove('selection-hit'));
+                }, 240);
+            }
+
+            function positionMenuSelector(animate = false, direction = 'down') {
+                const item = mainItems[mainIndex];
+                commandMenu.style.setProperty('--selector-y', `${item.offsetTop}px`);
+                commandMenu.style.setProperty('--selector-width', `${Math.max(270, item.offsetWidth + 72)}px`);
+                commandMenu.style.setProperty('--selector-tilt', getComputedStyle(item).getPropertyValue('--tilt').trim() || '-1deg');
+                if (animate) replaySelectionMotion(commandMenu, item, direction);
+            }
+
+            function selectMain(index, focus = false, animate = true) {
+                const previousIndex = mainIndex;
+                mainIndex = (index + mainItems.length) % mainItems.length;
+                mainItems.forEach((item, itemIndex) => item.setAttribute('aria-current', String(itemIndex === mainIndex)));
+                const direction = mainIndex === previousIndex
+                    ? 'down'
+                    : ((mainIndex - previousIndex + mainItems.length) % mainItems.length <= mainItems.length / 2 ? 'down' : 'up');
+                positionMenuSelector(animate && mainIndex !== previousIndex, direction);
+                if (focus) mainItems[mainIndex].focus({ preventScroll: true });
+            }
+
+            function entriesFor(id) {
+                if (id === 'skill' && postData.length) return postData;
+                if (id === 'palace' && window.GALLERY?.length) {
+                    return window.GALLERY.map((entry, index) => ({
+                        label: entry.name || `GALLERY ${index + 1}`,
+                        meta: 'MY PALACE · GALLERY',
+                        text: '站点画廊中的原始视觉素材。',
+                        href: '../src/gallery.html'
+                    }));
+                }
+                return (generic[id] || []).map((label, index) => ({
+                    label,
+                    meta: `${labels[id]} · ${String(index + 1).padStart(2, '0')}`,
+                    text: `${label} 是 ${labels[id]} 模块中的可交互条目。这里保留真实的选择、确认与返回状态。`,
+                    href: id === 'system' && index === 4 ? '../index.html' : ''
+                }));
+            }
+
+            function renderDetail() {
+                const entry = activeEntries[subIndex];
+                if (!entry) return;
+                [...submenuList.children].forEach((item, index) => item.setAttribute('aria-current', String(index === subIndex)));
+                detailMeta.textContent = entry.meta;
+                detailTitle.textContent = entry.label;
+                detailText.textContent = entry.text;
+                detailAction.textContent = entry.href ? 'OPEN' : 'CONFIRM';
+            }
+
+            function selectSub(index, focus = false) {
+                if (!activeEntries.length) return;
+                const previousIndex = subIndex;
+                subIndex = (index + activeEntries.length) % activeEntries.length;
+                renderDetail();
+                if (subIndex !== previousIndex) {
+                    const direction = ((subIndex - previousIndex + activeEntries.length) % activeEntries.length <= activeEntries.length / 2) ? 'down' : 'up';
+                    submenuList.dataset.direction = direction;
+                    const item = submenuList.children[subIndex];
+                    item.classList.remove('selection-hit');
+                    void item.offsetWidth;
+                    item.classList.add('selection-hit');
+                    setTimeout(() => item.classList.remove('selection-hit'), 210);
+                }
+                if (focus) submenuList.children[subIndex]?.focus({ preventScroll: true });
+            }
+
+            function buildSubmenu(id) {
+                activeMenuId = id;
+                activeEntries = entriesFor(id);
+                subIndex = 0;
+                submenuLayer.dataset.menu = id;
+                submenuTitle.textContent = labels[id];
+                submenuContext.textContent = submenuCopy[id]?.[0] || 'SELECT';
+                submenuRibbon.textContent = submenuCopy[id]?.[1] || labels[id];
+                submenuList.replaceChildren(...activeEntries.map((entry, index) => {
+                    const button = document.createElement('button');
+                    button.className = 'submenu-item';
+                    button.type = 'button';
+                    button.setAttribute('aria-current', String(index === 0));
+
+                    const marker = id === 'skill' ? document.createElement('img') : document.createElement('span');
+                    marker.className = id === 'skill' ? 'submenu-skill-icon' : 'submenu-index';
+                    if (id === 'skill') {
+                        marker.src = 'assets/p5r-godot/recovery_skill.png';
+                        marker.alt = '';
+                    } else {
+                        marker.textContent = String(index + 1).padStart(2, '0');
+                    }
+
+                    const label = document.createElement('span');
+                    label.className = 'submenu-label';
+                    label.textContent = entry.label;
+
+                    const cost = document.createElement('span');
+                    cost.className = 'submenu-cost';
+                    cost.textContent = id === 'skill' ? `${4 + (index % 4) * 2} SP` : labels[id];
+
+                    button.append(marker, label, cost);
+                    button.addEventListener('pointerenter', () => selectSub(index));
+                    button.addEventListener('click', () => selectSub(index, true));
+                    return button;
+                }));
+                renderDetail();
+            }
+
+            function runStrictSkillOpening(token) {
+                cancelAnimationFrame(transitionFrame);
+                stage.classList.add('strict-skill');
+                stage.classList.remove('godot-main-hidden');
+                submenuLayer.classList.remove('godot-returning', 'godot-impact');
+                submenuLayer.setAttribute('aria-hidden', 'false');
+                jokerSkillFinal.hidden = true;
+                setGodotPolygons(0);
+                window.P5RJokerModel?.setCamera('main');
+                window.P5RJokerModel?.show('skill_pose', .8);
+                setPhase('submenu-opening');
+
+                let startedAt = 0;
+                let cameraSwitched = false;
+                function tick(timestamp) {
+                    if (token !== transitionToken) return;
+                    if (!startedAt) startedAt = timestamp;
+                    const elapsed = timestamp - startedAt;
+
+                    if (elapsed >= 100) {
+                        stage.classList.add('godot-main-hidden');
+                        if (!cameraSwitched) {
+                            cameraSwitched = true;
+                            window.P5RJokerModel?.setCamera('skill');
+                        }
+                        setGodotPolygons(Math.min(elapsed - 100, 500));
+                    }
+
+                    if (elapsed >= 600) {
+                        window.P5RJokerModel?.hide();
+                        jokerSkillFinal.hidden = false;
+                        setGodotPolygons(500);
+                        setPhase('submenu');
+                        selectParty(0, true);
+                        submenuLayer.classList.add('godot-impact');
+                        setTimeout(() => {
+                            if (token === transitionToken) submenuLayer.classList.remove('godot-impact');
+                        }, 200);
+                        transitionFrame = 0;
+                        return;
+                    }
+                    transitionFrame = requestAnimationFrame(tick);
+                }
+                transitionFrame = requestAnimationFrame(tick);
+            }
+
+            function runStrictSkillReturn(token) {
+                cancelAnimationFrame(transitionFrame);
+                setPhase('submenu-closing');
+                submenuLayer.classList.remove('godot-impact');
+                submenuLayer.classList.add('godot-returning');
+                stage.classList.remove('godot-main-hidden');
+                window.P5RJokerModel?.hide();
+
+                let startedAt = 0;
+                function tick(timestamp) {
+                    if (token !== transitionToken) return;
+                    if (!startedAt) startedAt = timestamp;
+                    const progress = Math.min((timestamp - startedAt) / 500, 1);
+                    const intercept = String(-64 * progress);
+                    godotThresholdChannels.forEach((channel) => channel.setAttribute('intercept', intercept));
+
+                    if (progress >= 1) {
+                        submenuLayer.classList.remove('godot-returning');
+                        submenuLayer.setAttribute('aria-hidden', 'true');
+                        stage.classList.remove('strict-skill');
+                        jokerSkillFinal.hidden = true;
+                        godotThresholdChannels.forEach((channel) => channel.setAttribute('intercept', '0'));
+                        setGodotPolygons(0);
+                        setPhase('main');
+                        mainItems[mainIndex].focus({ preventScroll: true });
+                        transitionFrame = 0;
+                        return;
+                    }
+                    transitionFrame = requestAnimationFrame(tick);
+                }
+                transitionFrame = requestAnimationFrame(tick);
+            }
+
+            // A token owns each transition, preventing stale timers from committing an old phase.
+            function transitionToSubmenu() {
+                if (phase !== 'main') return;
+                const id = mainItems[mainIndex].dataset.id;
+                const token = ++transitionToken;
+                buildSubmenu(id);
+                if (id === 'skill') {
+                    runStrictSkillOpening(token);
+                    return;
+                }
+                submenuLayer.setAttribute('aria-hidden', 'false');
+                reference.src = id === 'equip'
+                    ? 'assets/p5r-replica/reference-020.jpg'
+                    : 'assets/p5r-replica/reference-015.jpg';
+                setPhase('submenu-opening');
+                setTimeout(() => {
+                    if (token !== transitionToken) return;
+                    setPhase('submenu');
+                    submenuList.children[0]?.focus({ preventScroll: true });
+                }, 650);
+            }
+
+            function transitionToMain() {
+                if (phase !== 'submenu') return;
+                const token = ++transitionToken;
+                if (activeMenuId === 'skill') {
+                    runStrictSkillReturn(token);
+                    return;
+                }
+                setPhase('submenu-closing');
+                reference.src = 'assets/p5r-replica/reference-007.jpg';
+                setTimeout(() => {
+                    if (token !== transitionToken) return;
+                    submenuLayer.setAttribute('aria-hidden', 'true');
+                    setPhase('main');
+                    mainItems[mainIndex].focus({ preventScroll: true });
+                }, 630);
+            }
+
+            function activateDetail() {
+                if (activeMenuId === 'skill') {
+                    partyCards[partyIndex]?.animate(
+                        [
+                            { transform: 'scale(1.2)' },
+                            { transform: 'scale(1.28)' },
+                            { transform: 'scale(1.2)' }
+                        ],
+                        { duration: 100, easing: 'linear' }
+                    );
+                    return;
+                }
+                const entry = activeEntries[subIndex];
+                if (entry?.href) location.href = entry.href;
+                else if (entry) {
+                    detailAction.textContent = 'SELECTED';
+                    setTimeout(() => { detailAction.textContent = 'CONFIRM'; }, 650);
+                }
+            }
+
+            const openingLayers = [
+                room, redWash, speedLines, starField, starsAccent, jokerSilhouette, jokerOutline, jokerCommand,
+                jokerHairHalftone, handGray, handFinal, jokerGodot, commandAsset,
+                commandMenu, brandLockup, commandWord, prompt
+            ];
+
+            function setLayerOpacity(elements, value) {
+                elements.forEach((element) => { element.style.opacity = String(value); });
+            }
+
+            function setLayerTransform(elements, value) {
+                elements.forEach((element) => { element.style.transform = value; });
+            }
+
+            // One run owns the animation frame loop; replay invalidates it before any stale phase can commit.
+            function cancelOpeningTimeline() {
+                openingToken += 1;
+                cancelAnimationFrame(openingFrame);
+                cancelAnimationFrame(transitionFrame);
+                openingFrame = 0;
+                transitionFrame = 0;
+                stage.classList.remove('strict-skill', 'godot-main-hidden');
+                submenuLayer.classList.remove('godot-returning', 'godot-impact');
+                window.P5RJokerModel?.hide();
+                jokerSkillFinal.hidden = true;
+                godotThresholdChannels.forEach((channel) => channel.setAttribute('intercept', '0'));
+                setGodotPolygons(0);
+                openingLayers.forEach((element) => {
+                    element.style.removeProperty('opacity');
+                    element.style.removeProperty('transform');
+                });
+                commandLayer.style.removeProperty('transform');
+                commandLayer.classList.remove('godot-impact');
+                commandMenu.classList.remove('menu-reveal', 'is-snapping', 'menu-recoil');
+                mainItems.forEach((item) => item.classList.remove('selection-hit'));
+            }
+
+            function applyOpeningStep(step) {
+                if (step === 0) {
+                    setLayerOpacity(openingLayers, 0);
+                    speedLines.style.opacity = '0';
+                    commandLayer.style.transform = 'none';
+                    starField.style.transform = 'translate(260px, -100px) scale(1.2) rotate(4deg)';
+                    starsAccent.style.transform = 'translate(360px, 80px) scale(1.28) rotate(-7deg)';
+                    setLayerTransform([jokerSilhouette], 'translate(-250px, 20px) scale(1.04)');
+                    setLayerTransform([jokerOutline, jokerCommand, jokerHairHalftone], 'translate(-105px, 18px) scale(1.04)');
+                    return;
+                }
+                if (step === 1) {
+                    setLayerOpacity([room, redWash], 1);
+                    speedLines.style.opacity = '.27';
+                    starField.style.opacity = '1';
+                    starField.style.transform = 'translate(130px, -55px) scale(1.12) rotate(2deg)';
+                    jokerSilhouette.style.opacity = '1';
+                } else if (step === 2) {
+                    starField.style.transform = 'translate(45px, -18px) scale(1.04) rotate(.6deg)';
+                    starsAccent.style.opacity = '.6';
+                    starsAccent.style.transform = 'translate(80px, 30px) scale(1.08) rotate(-2deg)';
+                    jokerSilhouette.style.transform = 'translate(-155px, 8px) scale(1.025)';
+                } else if (step === 3) {
+                    setLayerTransform([starField, starsAccent], 'none');
+                    jokerSilhouette.style.transform = 'translate(-70px, 0) scale(1.01)';
+                } else if (step === 4) {
+                    jokerSilhouette.style.opacity = '0';
+                    setLayerOpacity([jokerOutline, jokerCommand, jokerHairHalftone], 1);
+                } else if (step === 5) {
+                    setLayerTransform([jokerOutline, jokerCommand, jokerHairHalftone], 'translate(-35px, 6px) scale(1.015)');
+                } else if (step === 6) {
+                    setLayerTransform([jokerOutline, jokerCommand, jokerHairHalftone], 'none');
+                } else if (step === 7) {
+                    handGray.style.opacity = '1';
+                } else if (step === 8) {
+                    setLayerOpacity([
+                        jokerSilhouette, jokerOutline, jokerCommand, jokerHairHalftone, handGray, handFinal
+                    ], 0);
+                    setLayerOpacity([jokerGodot, commandAsset], 1);
+                    commandLayer.classList.remove('godot-impact');
+                    void commandLayer.offsetWidth;
+                    commandLayer.classList.add('godot-impact');
+                    starField.style.transform = 'translate(-12px, 5px) scale(1.012)';
+                    starsAccent.style.transform = 'translate(-20px, 8px) scale(1.025)';
+                } else if (step === 9) {
+                    starField.style.transform = 'translate(7px, -3px) scale(.996)';
+                    starsAccent.style.transform = 'translate(12px, -5px) scale(.99)';
+                } else if (step === 10) {
+                    setLayerTransform([starField, starsAccent], 'none');
+                    setLayerOpacity([commandMenu, brandLockup], 1);
+                    positionMenuSelector(false);
+                    commandMenu.classList.add('menu-reveal');
+                } else if (step === 11) {
+                    commandLayer.classList.remove('godot-impact');
+                } else if (step === 12) {
+                    prompt.style.opacity = '1';
+                }
+            }
+
+            function runOpeningTimeline() {
+                cancelOpeningTimeline();
+                transitionToken += 1;
+                submenuLayer.setAttribute('aria-hidden', 'true');
+                reference.src = 'assets/p5r-replica/reference-007.jpg';
+                setPhase('opening');
+
+                if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+                    positionMenuSelector(false);
+                    commandMenu.classList.add('menu-reveal');
+                    setPhase('main');
+                    return;
+                }
+
+                const token = openingToken;
+                // The Godot reference swaps its live model for the final portrait
+                // at the half-second impact; the web version keeps that hard cut.
+                const cuts = [0, 80, 140, 220, 300, 360, 420, 450, 500, 516, 550, 600, 650, 700];
+                let activeStep = -1;
+                let startedAt = 0;
+
+                // All layers advance from one clock so dropped frames skip forward without stretching the cut sequence.
+                function tick(timestamp) {
+                    if (token !== openingToken) return;
+                    if (!startedAt) startedAt = timestamp;
+                    const elapsed = timestamp - startedAt;
+                    let nextStep = activeStep;
+                    while (nextStep + 1 < cuts.length && elapsed >= cuts[nextStep + 1]) nextStep += 1;
+                    while (activeStep < nextStep && activeStep < 12) applyOpeningStep(++activeStep);
+
+                    if (elapsed >= 700) {
+                        setPhase('main');
+                        openingLayers.forEach((element) => {
+                            element.style.removeProperty('opacity');
+                            element.style.removeProperty('transform');
+                        });
+                        commandLayer.style.removeProperty('transform');
+                        commandLayer.classList.remove('godot-impact');
+                        positionMenuSelector(false);
+                        openingFrame = 0;
+                        return;
+                    }
+                    openingFrame = requestAnimationFrame(tick);
+                }
+
+                applyOpeningStep(0);
+                activeStep = 0;
+                openingFrame = requestAnimationFrame(tick);
+            }
+
+            mainItems.forEach((item, index) => {
+                item.addEventListener('pointerenter', () => selectMain(index));
+                item.addEventListener('focus', () => selectMain(index));
+                item.addEventListener('click', () => { selectMain(index); transitionToSubmenu(); });
+            });
+
+            partyCards.forEach((card, index) => {
+                card.addEventListener('pointerenter', () => selectParty(index));
+                card.addEventListener('focus', () => selectParty(index));
+                card.addEventListener('click', () => {
+                    selectParty(index, true);
+                    activateDetail();
+                });
+            });
+
+            detailAction.addEventListener('click', activateDetail);
+            replay.addEventListener('click', runOpeningTimeline);
+            refToggle.addEventListener('click', () => {
+                const enabled = !stage.classList.contains('ref-on');
+                stage.classList.toggle('ref-on', enabled);
+                refToggle.setAttribute('aria-pressed', String(enabled));
+            });
+            refOpacity.addEventListener('input', () => {
+                const value = Number(refOpacity.value);
+                stage.style.setProperty('--ref-opacity', String(value / 100));
+                refValue.value = `${value}%`;
+                refValue.textContent = `${value}%`;
+            });
+
+            addEventListener('keydown', (event) => {
+                if (event.key === 'Escape' || event.key === 'Backspace') {
+                    event.preventDefault();
+                    transitionToMain();
+                    return;
+                }
+                if (phase === 'main') {
+                    if (['ArrowDown', 's', 'S'].includes(event.key)) { event.preventDefault(); selectMain(mainIndex + 1, true); }
+                    if (['ArrowUp', 'w', 'W'].includes(event.key)) { event.preventDefault(); selectMain(mainIndex - 1, true); }
+                    if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); transitionToSubmenu(); }
+                } else if (phase === 'submenu') {
+                    if (['ArrowDown', 's', 'S'].includes(event.key)) {
+                        event.preventDefault();
+                        if (activeMenuId === 'skill') selectParty(partyIndex + 1, true);
+                        else selectSub(subIndex + 1, true);
+                    }
+                    if (['ArrowUp', 'w', 'W'].includes(event.key)) {
+                        event.preventDefault();
+                        if (activeMenuId === 'skill') selectParty(partyIndex - 1, true);
+                        else selectSub(subIndex - 1, true);
+                    }
+                    if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activateDetail(); }
+                }
+            });
+
+            addEventListener('resize', fitStage);
+            buildStarRipples();
+            try {
+                const renderer = window.P5RGodotPort?.createStarField(starCanvas, starClusters);
+                if (renderer) starField.classList.add('has-webgl');
+            } catch (error) {
+                console.warn('WebGL star field unavailable; using DOM fallback.', error);
+            }
+            fitStage();
+            setGodotPolygons(0);
+            positionMenuSelector(false);
+            Promise.allSettled(
+                [room, jokerSilhouette, jokerOutline, jokerCommand, handGray, jokerGodot, commandAsset, jokerSubmenu, jokerSkillFinal]
+                    .map((image) => image.decode())
+            ).then(runOpeningTimeline);
+        })();
+    </script>
+</body>
+</html>
